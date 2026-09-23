@@ -1,31 +1,50 @@
-# The Unofficial Guide
+# The Unofficial Guide — Campus Life
 
-<!-- Replace this line with your name and which corpus you picked. -->
-
-> **This file is your submission.** Fill it in as you go — most sections get
-> written during the milestone that produces them, not at the end.
->
-> How the starter works, and every command you'll need, is in `RUNNING.md`.
-> Leave that file alone.
->
-> **Paste everything as text.** No screenshots, no video. A typed table gets
-> full credit; a picture of the same table gets none.
->
-> Delete these instruction blocks as you replace them. The `<!-- -->` comments
-> are notes to you and don't show up when the page renders — you can leave them
-> or remove them.
-
----
-
-# Unit 1
+Daniel · Unit 1 · [Repository](https://github.com/dvnielt/ai201-project1-unofficial-guide-starter-v2026)
 
 ## What This Does
 
-<!-- Three or four sentences. Which corpus you picked, and the kinds of
-     questions your system answers. Write it for someone who has never seen
-     this repo.
+This command-line guide answers questions from the 88 fictional student posts
+in the provided `campus_life` corpus. It covers campus policies, dining waits,
+dorm facilities, course workloads, and everyday student costs. Local ONNX
+embeddings and a persistent Chroma cosine index retrieve five posts; a
+relevance gate decides whether Gemini receives enough relevant material to
+answer. Answers cite source filenames, while unrelated questions get
+“I don't have enough information about that.” before generation runs.
 
-     Milestone 5. -->
+### Run it
+
+Use Python 3.11–3.13. In PowerShell:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env  # only on first setup; do not overwrite an existing key
+```
+
+Set `GEMINI_API_KEY` privately in `.env`, then run:
+
+```powershell
+python test.py
+python app.py index
+python app.py ask "How long is the wait at Kestrel Commons between 12:15 and 1:00?"
+python app.py ask "Who won the 1994 World Cup?"
+python app.py ask
+```
+
+The final command opens an interactive question loop; an empty line exits.
+On macOS/Linux, activate with `source .venv/bin/activate` and initially copy
+with `cp .env.example .env`. Full command details remain in the unchanged
+[RUNNING.md](RUNNING.md). `.env`, the vector database, and model-response
+cache are ignored by Git. Rebuild the index after changing the corpus or
+chunker; changing the corpus/model also requires recalibrating the cutoff.
+
+`ingest.py::load_documents` loads text/Markdown in filename order and retains
+source filenames. `clean_text` normalizes line endings, collapses excess
+spaces and blank lines, and trims whitespace. These provided posts already
+contain no navigation, ads, or HTML; there is no scraped-page boilerplate to
+remove. Source wording, even awkward wording, remains intact.
 
 ## Chunking Strategy
 
@@ -115,166 +134,97 @@ not silently rewritten.
 
 ## Sample Answer
 
-<!-- One complete question and answer, pasted as text, with the source line
-     visible. Milestone 4. -->
+The following is actual uncached model output recorded in
+`results/unit1-verification.json`, not a hand-written example.
 
-**Question:**
+**Question:** How long is the wait at Kestrel Commons between 12:15 and 1:00?
 
 **Answer:**
 
+```text
+The wait at Kestrel Commons between 12:15 and 1:00 is 20 to 25 minutes (dining_kestrel_commons.txt, dining_kestrel_commons_followup.txt).
+
+Sources retrieved: dining_halden_hall_followup.txt, dining_kestrel_commons.txt, dining_kestrel_commons_followup.txt, dining_the_ridgeway_cafe_followup.txt, transit_walking.txt
 ```
-```
 
-**My relevance cutoff:**
+The inline filenames identify the sources actually cited by the answer;
+“Sources retrieved” lists all five candidate documents, not five claims of
+support. `generate.py::GROUNDING_INSTRUCTION` requires source-only answers,
+claim-level filenames, accurate amounts and exceptions, and explicit handling
+of disagreement. The actual assembled prompt was inspected with `--show-prompt`.
+These instructions reduce drift but are not a mathematical guarantee against
+hallucination.
 
-<!-- The number you set in config.py, and how you got there.
+**Relevance cutoff: 0.61, with top-k = 5.** The largest in-corpus best distance
+was 0.388070 and the smallest out-of-corpus best distance was 0.824593.
+Their midpoint is about 0.6063; rounding to 0.61 leaves room on both sides.
+The gate passes only distances strictly below the cutoff, refuses equality,
+and refuses empty retrievals. The five candidates preserve alternate posts
+and follow-ups; reading the first three result sets confirmed the answer was
+present despite some lower-ranked results merely sharing the topic.
 
-     You ran five questions your corpus covers and the five in OUT_OF_SCOPE
-     that it clearly doesn't, and wrote down the best distance for each. What
-     did those two groups look like? Where was the gap? Put the actual numbers
-     here — the table below wants all ten rows.
+Measured best cosine distances, using real `all-MiniLM-L6-v2` embeddings:
 
-     Milestone 4. -->
+- In corpus — Through which week can students add a course? **0.388070**
+- In corpus — What happens to unused dining dollars left in May? **0.241336**
+- In corpus — How long is the wait at Kestrel Commons between 12:15 and 1:00? **0.212891**
+- In corpus — How much does a wash cost in Aldridge Hall, and how must students pay? **0.346345**
+- In corpus — Do work-study earnings count against financial aid? **0.243665**
+- Out of corpus — What is the capital of Mongolia? **0.824593**
+- Out of corpus — How do I change the oil in a diesel engine? **0.934011**
+- Out of corpus — Who won the 1994 World Cup? **0.885860**
+- Out of corpus — What is the recommended dosage of ibuprofen for a headache? **0.844232**
+- Out of corpus — How do I write a for loop in Rust? **0.895998**
 
-| Question | In corpus? | Best distance |
-|---|---|---|
-|  |  |  |
+This calibration admits all five covered questions and rejects all five
+unrelated ones. A lower cutoff than 0.388070 would lose at least one covered
+question; a cutoff above 0.824593 would admit at least one unrelated question.
+Ten calibration examples do not establish performance on unseen questions,
+especially near-topic questions whose answers are absent from the posts.
+
+### Verification evidence
+
+- Environment check: 10 passed, including the real API call and embeddings.
+- Eight automated tests passed: preserved text/source attribution, paragraph
+  boundaries, long/empty inputs, cleaning, cutoff equality, and no model call
+  on refusal. Run `python -m unittest discover -s tools -p 'test_*.py'`.
+- One unit-1 pass: retrieval contains the answer for 5/5 questions; every
+  generated answer cites a supporting file (5/5); the off-topic gate refuses
+  5/5 with zero generation calls; all five sample chunks retain complete
+  thoughts. Four of five answers pass criterion 5's literal phrase check and
+  claim-support check. The fifth correctly says “do not count” but misses the
+  fixed phrase “don't count”; the target was not changed after seeing this.
+- Reproduce the live verification with `python tools/check_unit1.py` after
+  indexing. It makes five uncached model calls and overwrites that verification
+  log; preserve historical logs before a later comparison.
+- Raw distances and retrieved texts: `results/unit1-retrieval.json`.
+  Answers, sources, prompts, refusals, and samples: `results/unit1-verification.json`.
+  Human-readable source checks: `results/unit1-review.md`.
+- Original baseline and special activity count (**26**): `results/milestone1.md`.
+  The criteria were committed before the five test questions were run.
+
+This is unit 1. The unit-2 three-run before/after evaluation has not been
+performed or claimed; keep this repository and its history for that work.
 
 ## How I Used AI
 
-<!-- Two specific moments. For each: what you asked for, what came back, and
-     what you changed about it.
+**1. Criteria and questions.** I asked Codex to complete this exercise and,
+when it flagged the assignment's self-authorship requirement, explicitly told
+it to draft the criteria and questions because this is an ungraded exercise.
+It produced five measurable criteria with reasons and five corpus questions
+with expected phrases. Those were committed before testing. I did not
+independently author or revise that wording; this disclosure intentionally
+records the departure from the pasted assignment's no-AI criteria guideline.
 
-     "I asked Claude to write the chunking function from my notes. It ignored
-     the overlap, so I added that myself" is the level of detail we're after.
-     "I used AI to help me code" is not.
+**2. Chunking and verification.** My request asked Codex to implement and
+verify the project. After inspecting the short source posts, it replaced
+fixed character windows with whole-paragraph packing and retained titles,
+then added boundary tests and captured real retrieval/model output. The
+implementation changed to a 600-character soft budget with zero body overlap,
+and the measured cutoff changed from 0.6 to 0.61. Codex strengthened the
+source-grounding instructions and recorded the literal phrase mismatch
+instead of editing the target to match the answer. I did not manually edit
+the implementation or claim that these were independent changes I made.
 
-     Milestone 5. -->
-
-**1.**
-
-**2.**
-
-<!-- ── Stretch features ─────────────────────────────────────────────────────
-     Doing one? Say so here BEFORE you start. A feature this README never
-     claims earns nothing.
-     ───────────────────────────────────────────────────────────────────────── -->
-
----
-
-# Unit 2
-
-<!-- These sections get ADDED to what's already above. Don't delete or rewrite
-     unit 1 — the point is that someone can see what you said before you knew
-     how it went. -->
-
-## Run Log — Before
-
-<!-- Your five criteria, three runs each. `python run_eval.py --label before`
-     runs the questions, puts the OUT_OF_SCOPE ones through the gate, and
-     writes it all into results/ for you. Targets come from criteria.md; the
-     verdict column is your call.
-
-     Criterion 3 is measured in one deterministic pass rather than three, so
-     the same number goes in all three run columns. That's correct, not lazy.
-
-     Milestone 1. -->
-
-| Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
-|---|---|---|---|---|---|
-| 1. Retrieved chunk contains the answer | 4 of 5 |  |  |  |  |
-| 2. Every answer names a source | 5 of 5 |  |  |  |  |
-| 3. Gate stops out-of-corpus questions | 4 of 5 |  |  |  |  |
-| 4. | | | | | |
-| 5. | | | | | |
-
-<!-- Underneath, paste the REAL output for each criterion from one of your
-     runs — the actual text your system produced, not a description of it.
-     Name the file and function that produced it. -->
-
-## Verdicts
-
-<!-- MET or MISSED for each of the five, against the target you wrote last
-     unit — not a new one. Plus a sentence on how you decided. That sentence
-     matters most where it was close.
-
-     If your target said 4 of 5 and your runs came out 4, 3, 4, that's a MISS.
-     The target has to hold, not show up occasionally.
-
-     Milestone 2. -->
-
-| # | Criterion | Verdict | How I decided |
-|---|---|---|---|
-| 1 |  |  |  |
-| 2 |  |  |  |
-| 3 |  |  |  |
-| 4 |  |  |  |
-| 5 |  |  |  |
-
-## Diagnoses
-
-<!-- For each miss: which stage caused it, and how. The stage alone isn't
-     enough — you need the mechanism.
-
-     Not a diagnosis: "Question 3 didn't work."
-     A diagnosis:     "Question 3 asks about laundry costs. The answer is in
-                       one sentence that got split across two chunks, so
-                       neither chunk on its own contains it."
-
-     The five stages: loading → chunking → embedding → retrieval → generation.
-
-     Look for a pattern. If three misses all ask about numbers, that's one
-     problem, not three.
-
-     Missed nothing? Say so, then say honestly whether your targets were set
-     low, and which one you'd tighten and to what.
-
-     Milestone 3. -->
-
-## The Improvement
-
-**What I changed:**
-
-**Why I picked it:**
-
-<!-- Connect it to a specific diagnosis above in one sentence. If you can't,
-     you picked a fix because it sounded impressive. -->
-
-### Run Log — After
-
-<!-- Same format, same five criteria, three runs each.
-     `python run_eval.py --label after` -->
-
-| Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
-|---|---|---|---|---|---|
-| 1. Retrieved chunk contains the answer | 4 of 5 |  |  |  |  |
-| 2. Every answer names a source | 5 of 5 |  |  |  |  |
-| 3. Gate stops out-of-corpus questions | 4 of 5 |  |  |  |  |
-| 4. | | | | | |
-| 5. | | | | | |
-
-**Did it help?**
-
-<!-- Say plainly whether it did, and how you know. If it made things worse,
-     say that — a change that backfired, honestly reported, earns full credit
-     and is more interesting than one that worked. What matters is that you can
-     tell.
-
-     Milestone 4. -->
-
-## What's Still Broken
-
-<!-- For each criterion still missed after your fix: what you'd do about it,
-     and why you stopped where you did.
-
-     "I ran out of time" is fine if it's true. Pretending nothing is left is
-     not.
-
-     Milestone 5. -->
-
-## What I'd Do Differently
-
-<!-- Knowing what you know now — which of your five criteria would you write
-     differently, and why?
-
-     Milestone 5. -->
+No stretch features were added. No screenshots, invented results, or
+fabricated peer feedback are used as evidence.
